@@ -1,8 +1,9 @@
 import { generateText, NoObjectGeneratedError } from "ai";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { z } from "zod";
+import { generateCategoryDecisionWithTypeSafe } from "./categorization-typesafe.js";
 import { generateCategoryDecisionWithLLM } from "./categorization.js";
-import { isLLMEnabled } from "./config.js";
+import { isLLMEnabled, isTypeSafeCategorizationEnabled } from "./config.js";
 
 vi.mock("ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("ai")>()),
@@ -15,6 +16,11 @@ vi.mock("ai", async (importOriginal) => ({
 vi.mock("./config.js", () => ({
   getModel: vi.fn<() => string>(() => "mock-model"),
   isLLMEnabled: vi.fn<() => boolean>(),
+  isTypeSafeCategorizationEnabled: vi.fn<() => boolean>(() => false),
+}));
+
+vi.mock("./categorization-typesafe.js", () => ({
+  generateCategoryDecisionWithTypeSafe: vi.fn<() => Promise<unknown>>(),
 }));
 
 const candidates = [
@@ -44,7 +50,9 @@ const transaction = {
 describe("generateCategoryDecisionWithLLM", () => {
   beforeEach(() => {
     vi.mocked(isLLMEnabled).mockReturnValue(true);
+    vi.mocked(isTypeSafeCategorizationEnabled).mockReturnValue(false);
     vi.mocked(generateText).mockReset();
+    vi.mocked(generateCategoryDecisionWithTypeSafe).mockReset();
   });
 
   test("LLMが無効の場合はgenerateTextを呼ばずnullを返す", async () => {
@@ -187,6 +195,36 @@ describe("generateCategoryDecisionWithLLM", () => {
       middleCategoryId: "77",
       confidence: 0.78,
       reason: "subscription service",
+    });
+  });
+
+  test("TypeSafe (Jev) が有効な場合はgenerateTextを呼ばずTypeSafe経路の結果を返す", async () => {
+    vi.mocked(isTypeSafeCategorizationEnabled).mockReturnValue(true);
+    vi.mocked(generateCategoryDecisionWithTypeSafe).mockResolvedValue({
+      source: "llm",
+      largeCategoryId: "13",
+      middleCategoryId: "77",
+      confidence: 0.62,
+      reason: "趣味・娯楽 > 動画・音楽 0.62 / 食費 > 食料品 0.21",
+    });
+
+    const result = await generateCategoryDecisionWithLLM({
+      transaction,
+      candidates,
+      warn: () => {},
+    });
+
+    expect(generateCategoryDecisionWithTypeSafe).toHaveBeenCalledWith({
+      transaction,
+      candidates,
+    });
+    expect(generateText).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      source: "llm",
+      largeCategoryId: "13",
+      middleCategoryId: "77",
+      confidence: 0.62,
+      reason: "趣味・娯楽 > 動画・音楽 0.62 / 食費 > 食料品 0.21",
     });
   });
 });

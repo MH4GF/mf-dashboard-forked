@@ -1,6 +1,7 @@
 import { generateText, NoObjectGeneratedError, Output } from "ai";
 import { z } from "zod";
-import { getModel, isLLMEnabled } from "./config.js";
+import { generateCategoryDecisionWithTypeSafe } from "./categorization-typesafe.js";
+import { getModel, isLLMEnabled, isTypeSafeCategorizationEnabled } from "./config.js";
 
 export interface CategoryCandidateForLLM {
   largeCategoryId: string;
@@ -25,7 +26,7 @@ export interface LLMCategoryDecision {
   reason: string;
 }
 
-function candidateKey(
+export function candidateKey(
   candidate: Pick<CategoryCandidateForLLM, "largeCategoryId" | "middleCategoryId">,
 ): string {
   return `${candidate.largeCategoryId}:${candidate.middleCategoryId}`;
@@ -44,6 +45,13 @@ export async function generateCategoryDecisionWithLLM(options: {
   candidates: CategoryCandidateForLLM[];
   warn: (...args: unknown[]) => void;
 }): Promise<LLMCategoryDecision | null> {
+  if (isTypeSafeCategorizationEnabled()) {
+    return generateCategoryDecisionWithTypeSafe({
+      transaction: options.transaction,
+      candidates: options.candidates,
+    });
+  }
+
   if (!isLLMEnabled()) return null;
 
   const candidatesById = new Map(
